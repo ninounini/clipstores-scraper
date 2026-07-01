@@ -6,6 +6,8 @@ IWantClips, ManyVids, Clips4Sale, etc.
 This tool fills that gap: finds the clip-store URL for each unmatched scene,
 writes it to Stash, then scrapes full metadata.
 
+<!-- ci + coderabbit smoke test — this PR will be closed, not merged -->
+
 ## Workflow
 
 ```mermaid
