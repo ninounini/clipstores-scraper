@@ -9,7 +9,7 @@ dependencies = [
     "rapidfuzz>=3.9",
     "typer>=0.12",
     "python-dotenv>=1.0",
-    "textual>=0.80",
+    "textual>=8.2.8",
 ]
 
 [project.scripts]
