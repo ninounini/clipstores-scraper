@@ -1,0 +1,32 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# CodeRabbit is a GitHub App: install it on the repo at https://coderabbit.ai
+# (free for public/open-source). This file only tunes its behaviour.
+language: "en-US"
+reviews:
+  profile: "chill" # fewer, higher-signal comments (vs "assertive")
+  high_level_summary: true
+  poem: false
+  review_status: true
+  auto_review:
+    enabled: true
+    drafts: false
+  # Teach the reviewer this repo's conventions so it doesn't fight them.
+  path_instructions:
+    - path: "test_*.py"
+      instructions: >
+        Tests are intentionally framework-free: plain asserts and an
+        `if __name__ == "__main__"` runner, no pytest/fixtures. Do NOT suggest
+        adding a test framework. Fixture data (performer names, store URLs, ids,
+        titles) is deliberately fabricated for this public repo; do not flag it
+        as needing real/consistent data.
+    - path: "src/**/*.py"
+      instructions: >
+        This codebase favours minimal, standard-library-first solutions (YAGNI).
+        Prefer flagging over-engineering, dead code, and needless dependencies
+        over proposing new abstractions. Store backends implement the
+        StoreScraper Protocol and are wired only through the REGISTRY list.
+  tools:
+    ruff:
+      enabled: true # inline PR annotations (matches the CI lint)
+chat:
+  auto_reply: true

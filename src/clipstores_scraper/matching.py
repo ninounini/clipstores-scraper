@@ -1,0 +1,252 @@
+"""Turn filenames into search queries and score them against store clips.
+
+Matching stacks three independent signals so a link can be trusted:
+  * fuzzy title similarity (filename vs clip title, after cleaning),
+  * duration agreement (Stash file runtime vs clip runtime),
+  * date proximity (Stash scene date vs clip release date).
+"""
+
+from __future__ import annotations
+
+import re
+import unicodedata
+from datetime import date
+
+from rapidfuzz import fuzz
+
+from .models import Clip, MatchCandidate, Scene
+
+_EXTENSIONS = r"\.(?:mp4|mkv|wmv|avi|mov|flv|webm|m4v|mpg|mpeg|ts)$"
+_CODECS = r"(?i)\b(?:[hx]\.?26[45]|hevc|xvid|av1|aac|opus)\b"
+_RESOLUTION = (
+    r"(?i)\b(?:4k|uhd|2160|1440|1080|720|480|360)[pi]?\b"
+    r"|\b(?:ultra\s*hd|full\s*hd|hd\s*tv|hd)\b"
+)
+# Stray container tokens sellers leave in titles ("... MP4", "WMV"). No "ts":
+# it doubles as a meaningful tag in this domain.
+_CONTAINERS = r"(?i)\b(?:mp4|mkv|wmv|avi|mov|flv|webm|m4v|mpe?g)\b"
+_SITES = r"(?i)\[?(?:iwantclips|clips4sale|manyvids|loyalfans|apclips)(?:\.com)?\]?"
+# Format/quality noise C4S sellers append to titles ("(HD MP4 VERSION)",
+# "Full HD Version", "High Quality", "Complete Movie", "Medium File Size").
+_QUALITY = (
+    r"(?i)\b(?:wmv|mov|mp4|hd)\s+version\b"
+    r"|\b(?:high|full)\s+(?:quality|resolution|definition|version)\b"
+    r"|\bin\s+high\s+definition\b|\bsuper[-\s]?hd\b"
+    r"|\bmedium\s+file\s+size\b|\bcomplete\s+(?:film|movie)\b"
+    r"|\bversion\b"
+)
+# Honorifics sellers prefix to the name ("Goddess …", "Mistress …") and credit
+# noise ("… Starring", "… by"). Stripped from both filename and title, so it can
+# only help the score. Honorific is leading-only — "Goddess Worship" mid-title
+# is content, not a prefix.
+_HONORIFIC = r"(?i)^\s*(?:goddess|mistress|miss|lady|princess|domme)\b\s*"
+_CREDIT = r"(?i)\bstarring\b|\bby\s*$"
+_LEADING_DATE = r"^\s*(?:\d{4}[-_.]\d{1,2}[-_.]\d{1,2}|\d{1,2}[-_.]\d{1,2}[-_.]\d{4})\b"
+
+# Matching thresholds (see README "How it works"). Not env-tunable on purpose.
+TITLE_MIN = 0.85  # title alone makes a candidate at/above this
+TITLE_FLOOR = 0.70  # below TITLE_MIN, only if duration AND date both corroborate
+TITLE_HIGH = 0.90  # title score needed to qualify as high confidence
+DURATION_TOLERANCE = 90  # seconds (store durations are minute-rounded)
+DATE_TOLERANCE = 2  # days
+
+
+def clean_filename(name: str, performer_names: list[str]) -> str:
+    """Reduce a filename to its probable scene title."""
+    text = re.sub(_EXTENSIONS, "", name)
+    text = re.sub(r"^11_*", "", text)  # known prefix junk
+    # Our downloader appends "_Downloaded_YYYY_MM_DD_HH_MM_SS" before the
+    # extension. Those 7 tokens are pure noise that sink the title score below
+    # TITLE_MIN; drop the stamp (and anything after it) before scoring.
+    text = re.sub(r"(?i)_downloaded_\d{4}_\d{2}_\d{2}.*$", "", text)
+    # Leading release date (26-07-2023 - …, 2023.07.26_…): pure noise that
+    # otherwise inflates the query and sinks the title score below TITLE_MIN.
+    # Anchored + 4-digit-year required so titles like "1-2-1 session" survive.
+    # ponytail: leading date only; handle trailing dates if those show up.
+    text = re.sub(_LEADING_DATE, " ", text)
+    text = re.sub(_CODECS, " ", text)
+    # Dots are the most common separator in release names (Name.Title.1080p),
+    # so treat them like _ and +. Done after codec stripping, which relies on
+    # the dot in tokens like "h.264" still being present.
+    text = re.sub(r"[_+.]", " ", text)
+    text = re.sub(r"[-–—]", " ", text)
+    return _strip_common(text, performer_names)
+
+
+def clean_title(title: str, performer_names: list[str]) -> str:
+    """Reduce a store clip title to a comparable form."""
+    return _strip_common(title, performer_names)
+
+
+def _strip_common(text: str, performer_names: list[str]) -> str:
+    text = re.sub(_SITES, " ", text)
+    # Resolution before quality: "Full HD Version" -> drop "Full HD" as a unit,
+    # then "Version" — otherwise "HD Version" goes first and strands "Full".
+    text = re.sub(_RESOLUTION, " ", text)
+    text = re.sub(_QUALITY, " ", text)
+    text = re.sub(_CONTAINERS, " ", text)
+    # Longest alias first: stripping a short alias ("Aria Sterling") before a
+    # longer one that contains it ("Divine Aria Sterling") guts the middle and
+    # strands the prefix ("Divine") in the query.
+    for name in sorted(performer_names, key=len, reverse=True):
+        if not name:
+            continue
+        pattern = r"\b" + re.escape(name).replace(r"\ ", r"\s*") + r"\b"
+        text = re.sub(pattern, " ", text, flags=re.IGNORECASE)
+    text = re.sub(_CREDIT, " ", text)
+    text = re.sub(r"(?<!\w)&(?!\w)", "and", text)
+    text = re.sub(r"[\[\]()]", " ", text)
+    text = re.sub(r"\b\d{5,}\b", " ", text)  # long id-like numbers
+    # Leading honorific last: the name strip above may have exposed it
+    # ("Goddess Jane Tease" -> "Goddess  Tease" -> "Tease").
+    text = re.sub(_HONORIFIC, " ", text)
+    text = re.sub(r"\s{2,}", " ", text)
+    return text.strip()
+
+
+def _normalize(s: str) -> str:
+    # Accents fold to bare letters: stores save French titles inconsistently
+    # ("Pédagogique" vs "Pedagogique"), and the comparison shouldn't care.
+    decomposed = unicodedata.normalize("NFKD", s)
+    s = "".join(c for c in decomposed if not unicodedata.combining(c))
+    s = re.sub(r"[^\w\s]", "", s.lower())
+    s = re.sub(r"\s+", " ", s).strip()
+    return _glue_orphan_letters(s)
+
+
+def _glue_orphan_letters(s: str) -> str:
+    """Reattach stray single-letter tokens to an adjacent word.
+
+    Two sources of stray letters:
+      * A lone "s" is a split possessive/plural -- "Brother's"/"brother s" both
+        become "brothers" -- so it glues *backward* onto the previous word.
+      * Our downloader drops accented chars, splitting a word where the accent
+        was ("Pédagogique" -> "P dagogique", "obsédé" -> "obs d"); that fragment
+        glues *forward* when a real word follows, else *backward* if trailing.
+
+    Keeping the "s" rule separate is what lets a possessive ("mom s ...") collapse
+    to "moms" while a genuine extra word ("step-mom") stays distinct. Digits are
+    left alone so a sequence number ("Part 1") keeps its own token."""
+    toks = s.split()
+    out: list[str] = []
+    pending = ""
+    for i, tok in enumerate(toks):
+        if len(tok) == 1 and tok.isalpha():
+            if tok == "s" and out and not pending:
+                out[-1] += tok  # split possessive: "brother s" -> "brothers"
+                continue
+            following_word = any(not _is_orphan(x) for x in toks[i + 1 :])
+            if following_word or not out:
+                pending += tok  # real word follows (or nothing precedes): forward
+            else:
+                out[-1] += tok  # trailing accent fragment: glue backward
+        else:
+            out.append(pending + tok)
+            pending = ""
+    if pending:
+        out.append(pending)
+    return " ".join(out)
+
+
+def _is_orphan(tok: str) -> bool:
+    return len(tok) == 1 and tok.isalpha()
+
+
+def title_score(query: str, clip_title: str, performer_names: list[str]) -> float:
+    """Fuzzy similarity in 0..1, order-insensitive, with a guard for clips that
+    differ only by a sequence number (Part 2 vs Part 3, "Tease 4" vs "Tease 5")."""
+    q = _normalize(query)
+    t = _normalize(clean_title(clip_title, performer_names))
+    if not q or not t:
+        return 0.0
+    if _differs_by_number_only(q, t):
+        return 0.0
+    return fuzz.token_sort_ratio(q, t) / 100.0
+
+
+def _differs_by_number_only(a: str, b: str) -> bool:
+    wa, wb = a.split(), b.split()
+    if len(wa) != len(wb):
+        return False
+    diffs = [(x, y) for x, y in zip(wa, wb, strict=False) if x != y]
+    return len(diffs) == 1 and all(x.isdigit() and y.isdigit() for x, y in diffs)
+
+
+def _date_delta_days(a: str | None, b: str | None) -> int | None:
+    if not a or not b:
+        return None
+    try:
+        return abs((date.fromisoformat(a[:10]) - date.fromisoformat(b[:10])).days)
+    except ValueError:
+        return None
+
+
+def score_clip(
+    scene: Scene,
+    query: str,
+    clip: Clip,
+    performer_names: list[str],
+) -> MatchCandidate | None:
+    """Return a candidate if the title clears the bar, else None."""
+    score = title_score(query, clip.title, performer_names)
+
+    duration_delta = (
+        abs(scene.duration - clip.duration)
+        if scene.duration and clip.duration
+        else None
+    )
+    date_delta = _date_delta_days(scene.date, clip.date)
+
+    dur_ok = duration_delta is not None and duration_delta <= DURATION_TOLERANCE
+    date_ok = date_delta is not None and date_delta <= DATE_TOLERANCE
+
+    # A title at/above TITLE_MIN stands on its own. Below it, the clip still
+    # qualifies (as "medium" via the branches below) only when BOTH duration and
+    # date independently corroborate -- the joint signal a human uses to match a
+    # renamed/abbreviated title. TITLE_FLOOR keeps unrelated titles out.
+    if score < TITLE_MIN and not (score >= TITLE_FLOOR and dur_ok and date_ok):
+        return None
+
+    # Every candidate that cleared the gate above is at least review-worthy: a
+    # title >= TITLE_MIN stands on its own, and a sub-MIN title only survived
+    # because duration AND date both corroborate. So it's "high" only with both a
+    # strong title and a corroborating signal, else "medium" (pending). It is never
+    # "low" here — a self-standing title in [TITLE_MIN, TITLE_HIGH) used to fall
+    # through to "low", which _DEFAULT_DECISION auto-rejects, silently dropping a
+    # valid match.
+    confidence = "high" if score >= TITLE_HIGH and (dur_ok or date_ok) else "medium"
+
+    return MatchCandidate(
+        scene=scene,
+        clip=clip,
+        title_score=round(score, 3),
+        duration_delta=duration_delta,
+        date_delta=date_delta,
+        confidence=confidence,
+    )
+
+
+# Higher is better; used to rank candidates so a corroborated match wins.
+CONFIDENCE_RANK = {"high": 2, "medium": 1, "low": 0}
+
+
+def best_match(
+    scene: Scene,
+    query: str,
+    clips: list[Clip],
+    performer_names: list[str],
+) -> MatchCandidate | None:
+    """Best candidate clip for a scene, if any clear the threshold.
+
+    Ranked by confidence first, then title score: a clip whose duration/date
+    also agree (high) should beat a marginally closer title with no
+    corroboration (medium), so the strongest auto-applyable link is the one we
+    keep rather than being shadowed by a higher raw title score."""
+    candidates = [
+        c
+        for c in (score_clip(scene, query, clip, performer_names) for clip in clips)
+        if c
+    ]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda c: (CONFIDENCE_RANK[c.confidence], c.title_score))

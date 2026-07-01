@@ -1,0 +1,12 @@
+version: 2
+updates:
+  # Keep the GitHub Actions we pin (checkout, setup-uv, codeql) current.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "daily"
+  # Python deps from pyproject.toml + uv.lock.
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "daily"

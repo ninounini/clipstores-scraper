@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+dist/
+build/
+
+# Project
+.env
+cache/
+review_*.csv
+state.db*
+debug.txt
+.DS_Store
