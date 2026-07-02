@@ -113,7 +113,8 @@ class APClipsStore:
     domain = "apclips.com"
 
     def handles(self, url: str) -> bool:
-        return "apclips.com" in (url or "").lower()
+        host = urlparse(url or "").netloc.lower()
+        return host == self.domain or host.endswith("." + self.domain)
 
     def store_id(self, url: str) -> str | None:
         return _slug(url) if self.handles(url) else None
