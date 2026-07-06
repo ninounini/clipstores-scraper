@@ -44,17 +44,28 @@ _ANY_DESC_RE = re.compile(r'class="rich-text-content[^"]*"[^>]*>(.*?)</div>', re
 _TAG_RE = re.compile(r'href="[^"]*[?&]tag%5B%5D=([^"&]+)"')
 
 
-def _creator_slug(url: str) -> str | None:
-    """The creator slug from a profile URL (`/creators/{slug}`, any sub-path or
-    ``#videos`` fragment); None for anything else, including clip URLs."""
+def _path_parts(url: str) -> list[str] | None:
+    """The path segments of a yourvids.com URL; None for other hosts."""
     p = urllib.parse.urlparse(url or "")
     host = p.netloc.lower()
     if host != "yourvids.com" and not host.endswith(".yourvids.com"):
         return None
-    parts = [seg for seg in p.path.split("/") if seg]
-    if len(parts) >= 2 and parts[0] == "creators":
+    return [seg for seg in p.path.split("/") if seg]
+
+
+def _creator_slug(url: str) -> str | None:
+    """The creator slug from a profile URL (`/creators/{slug}`, any sub-path or
+    ``#videos`` fragment); None for anything else, including clip URLs."""
+    parts = _path_parts(url)
+    if parts and len(parts) >= 2 and parts[0] == "creators":
         return parts[1].lower()
     return None
+
+
+def _is_clip_url(url: str) -> bool:
+    """True for clip pages (`/vids/{clip-slug}`) — what a matched scene links."""
+    parts = _path_parts(url)
+    return bool(parts and len(parts) >= 2 and parts[0] == "vids")
 
 
 def _date(created_at: object) -> str | None:
@@ -91,9 +102,13 @@ class YourVidsStore:
     domain = "yourvids.com"
 
     def handles(self, url: str) -> bool:
-        return _creator_slug(url) is not None
+        # Both URL shapes: creator profiles (scrape targets on performers) and
+        # clip pages (what enrich resolves from a matched scene's URL).
+        return _creator_slug(url) is not None or _is_clip_url(url)
 
     def store_id(self, url: str) -> str | None:
+        # None for clip URLs: the creator isn't in the URL. Callers fall back
+        # to the URL itself as the cache key.
         return _creator_slug(url)
 
     def catalog(

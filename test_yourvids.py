@@ -15,25 +15,28 @@ from clipstores_scraper.stores.yourvids import (
 
 _STORE = YourVidsStore()
 
-# (url, expected store_id or None). Slug is case-folded; the #videos fragment,
+# (url, handled, expected store_id). Slug is case-folded; the #videos fragment,
 # trailing slashes and the www/http variants all reduce to the slug. Clip URLs
-# and other hosts are not store URLs.
+# are handled too (enrich resolves the store from a matched scene's clip URL)
+# but have no store_id — the creator isn't in the URL.
 _URL_CASES = [
-    ("https://yourvids.com/creators/demojames", "demojames"),
-    ("https://yourvids.com/creators/demojames#videos", "demojames"),
-    ("https://www.yourvids.com/creators/DemoJames/", "demojames"),
-    ("http://yourvids.com/creators/sample-seller", "sample-seller"),
-    ("https://yourvids.com/vids/sample-clip-title", None),
-    ("https://yourvids.com/creators", None),
-    ("https://notyourvids.com/creators/demojames", None),
-    ("https://evil.com/yourvids.com/creators/demojames", None),
+    ("https://yourvids.com/creators/demojames", True, "demojames"),
+    ("https://yourvids.com/creators/demojames#videos", True, "demojames"),
+    ("https://www.yourvids.com/creators/DemoJames/", True, "demojames"),
+    ("http://yourvids.com/creators/sample-seller", True, "sample-seller"),
+    ("https://yourvids.com/vids/sample-clip-title", True, None),
+    ("https://yourvids.com/creators", False, None),
+    ("https://yourvids.com/boutique", False, None),
+    ("https://notyourvids.com/creators/demojames", False, None),
+    ("https://evil.com/yourvids.com/creators/demojames", False, None),
+    ("https://evil.com/yourvids.com/vids/sample-clip-title", False, None),
 ]
 
 
 def test_handles_and_store_id() -> None:
-    for url, expected in _URL_CASES:
-        assert _STORE.handles(url) is (expected is not None), url
-        assert _STORE.store_id(url) == expected, url
+    for url, handled, expected_id in _URL_CASES:
+        assert _STORE.handles(url) is handled, url
+        assert _STORE.store_id(url) == expected_id, url
 
 
 def test_date() -> None:
