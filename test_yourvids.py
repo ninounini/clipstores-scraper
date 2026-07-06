@@ -10,6 +10,7 @@ from clipstores_scraper.stores.yourvids import (
     _clean_text,
     _date,
     _jsonld,
+    _rich_text,
     _to_clip,
 )
 
@@ -66,8 +67,18 @@ def test_to_clip_maps_an_api_item() -> None:
 
 def test_clean_text() -> None:
     assert _clean_text("  a<br> <br> b<strong>!</strong>  ") == "a\n\nb!"
-    assert _clean_text("<p>one</p><p>two</p>") == "one\ntwo"
+    assert _clean_text("<p>one</p><p>two</p>") == "one\n\ntwo"
     assert _clean_text(" <br> ") is None
+
+
+def test_rich_text_tracks_nested_divs() -> None:
+    # Pasted markup nests <div>s inside the description; extraction must not
+    # stop at the first </div> (seen on real clips: 1500 chars cut to 51).
+    h = '<div class="rich-text-content x">a<div>b<div>c</div></div>d</div>tail'
+    assert _rich_text(h) == "a<div>b<div>c</div></div>d"
+    assert _clean_text(_rich_text(h)) == "a\nb\nc\n\nd"
+    assert _rich_text("no description here") is None
+    assert _rich_text('<div class="rich-text-content">unbalanced<div>') is None
 
 
 def test_detail_parsing() -> None:
@@ -93,7 +104,8 @@ def test_detail_parsing() -> None:
 
     assert yv._EMBED_ID_RE.search(ld["embedUrl"]).group(1) == "12345"
     assert _date(yv._RELEASE_RE.search(html).group(1)) == "2025-06-13"
-    assert _clean_text(yv._FULL_DESC_RE.search(html).group(1)) == "Full text.\n\nMore."
+    anchor = html.find(yv._FULL_DESC_ANCHOR)
+    assert _clean_text(_rich_text(html, anchor)) == "Full text.\n\nMore."
     tags = [yv.urllib.parse.unquote(t) for t in yv._TAG_RE.findall(html)]
     assert tags == ["Alpha", "Blue Widget / Gadget", "Alpha"]
 

@@ -36,11 +36,9 @@ _JSONLD_RE = re.compile(r'<script type="application/ld\+json">(.*?)</script>', r
 _EMBED_ID_RE = re.compile(r"/vids/(\d+)/embed")
 _RELEASE_RE = re.compile(r'property="video:release_date" content="([^"]+)"')
 # The hidden full-description block; the visible one is truncated with a "…".
-_FULL_DESC_RE = re.compile(
-    r'id="desktopDescriptionFull".*?class="rich-text-content[^"]*"[^>]*>(.*?)</div>',
-    re.S,
-)
-_ANY_DESC_RE = re.compile(r'class="rich-text-content[^"]*"[^>]*>(.*?)</div>', re.S)
+_FULL_DESC_ANCHOR = 'id="desktopDescriptionFull"'
+_DESC_OPEN_RE = re.compile(r'class="rich-text-content[^"]*"[^>]*>')
+_DIV_RE = re.compile(r"<div\b|</div>")
 _TAG_RE = re.compile(r'href="[^"]*[?&]tag%5B%5D=([^"&]+)"')
 
 
@@ -88,9 +86,25 @@ def _to_clip(item: dict) -> Clip | None:
     )
 
 
+def _rich_text(h: str, start: int = 0) -> str | None:
+    """The inner HTML of the first rich-text-content div at/after ``start``.
+    Descriptions can embed pasted markup with nested <div>s, so a stop-at-first-
+    </div> regex would truncate them; track the div depth instead."""
+    m = _DESC_OPEN_RE.search(h, start)
+    if not m:
+        return None
+    i, depth = m.end(), 1
+    for tag in _DIV_RE.finditer(h, i):
+        depth += 1 if tag.group(0) != "</div>" else -1
+        if depth == 0:
+            return h[i : tag.start()]
+    return None  # unbalanced markup; treat as no description
+
+
 def _clean_text(fragment: str) -> str | None:
-    """Scraped rich-text HTML -> plain text with paragraph breaks kept."""
-    text = re.sub(r"(?i)<br\s*/?>|</p>", "\n", fragment)
+    """Scraped rich-text HTML -> plain text with paragraph breaks kept. Block
+    tags (p/div/br) become line breaks; inline tags are stripped in place."""
+    text = re.sub(r"(?i)<br\s*/?>|</?(?:p|div)\b[^>]*>", "\n", fragment)
     text = re.sub(r"<[^>]+>", "", text)
     text = "\n".join(line.strip() for line in text.split("\n"))
     text = re.sub(r"\n{3,}", "\n\n", text).strip()
@@ -170,12 +184,11 @@ class YourVidsStore:
         date = (_date(release.group(1)) if release else None) or _date(
             ld.get("uploadDate")
         )
-        desc = _FULL_DESC_RE.search(h)
-        if desc:
-            details = _clean_text(desc.group(1))
-        else:  # no hidden block on short descriptions; take the longest visible one
-            fragments = _ANY_DESC_RE.findall(h)
-            details = _clean_text(max(fragments, key=len)) if fragments else None
+        anchor = h.find(_FULL_DESC_ANCHOR)
+        fragment = _rich_text(h, anchor) if anchor != -1 else None
+        if fragment is None:  # no hidden block on short descriptions
+            fragment = _rich_text(h)
+        details = _clean_text(fragment) if fragment else None
         # Tag links repeat (desktop + mobile layouts); dedupe, preserve order.
         tags = list(
             dict.fromkeys(urllib.parse.unquote(t).strip() for t in _TAG_RE.findall(h))
