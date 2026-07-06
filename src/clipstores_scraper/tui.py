@@ -450,8 +450,8 @@ class ReviewScreen(Screen):
                 f"{m.title_score:.2f}",
                 dur,
                 m.store_name,
-                m.filename[:44],
-                m.clip_title[:36],
+                m.filename,
+                m.clip_title,
                 key=self._row_key(m),
             )
         title = (
@@ -672,8 +672,8 @@ class DashboardApp(App):
         table.clear()
         for g in groups:
             table.add_row(
-                g.name[:28],
-                g.store_label[:26],
+                g.name,
+                g.store_label,
                 str(g.unmatched),
                 "-" if g.catalog is None else str(g.catalog),
                 f"[green]{g.approved}[/]" if g.approved else "0",
