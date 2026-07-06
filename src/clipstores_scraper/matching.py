@@ -25,7 +25,10 @@ _RESOLUTION = (
 # Stray container tokens sellers leave in titles ("... MP4", "WMV"). No "ts":
 # it doubles as a meaningful tag in this domain.
 _CONTAINERS = r"(?i)\b(?:mp4|mkv|wmv|avi|mov|flv|webm|m4v|mpe?g)\b"
-_SITES = r"(?i)\[?(?:iwantclips|clips4sale|manyvids|loyalfans|apclips)(?:\.com)?\]?"
+_SITES = (
+    r"(?i)\[?(?:iwantclips|clips4sale|manyvids|loyalfans|apclips|yourvids)"
+    r"(?:\.com)?\]?"
+)
 # Format/quality noise C4S sellers append to titles ("(HD MP4 VERSION)",
 # "Full HD Version", "High Quality", "Complete Movie", "Medium File Size").
 _QUALITY = (

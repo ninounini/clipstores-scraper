@@ -138,6 +138,7 @@ It compares the covers and writes only the matches you approve.
 | Clips4Sale                         | HTTP (JSON)             |
 | LoyalFans                          | HTTP (JSON)             |
 | APClips                            | HTTP                    |
+| YourVids                           | HTTP (JSON)             |
 | goddesssnow.com                    | HTTP (HTML)             |
 | brookelynnebriar.com (ModelCentro) | HTTP (JSON API)         |
 

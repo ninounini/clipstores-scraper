@@ -14,6 +14,7 @@ from .iwantclips import IWantClipsStore
 from .loyalfans import LoyalFansStore
 from .manyvids import ManyVidsStore
 from .modelcentro import ModelCentroStore
+from .yourvids import YourVidsStore
 
 REGISTRY: list[StoreScraper] = [
     IWantClipsStore(),
@@ -22,6 +23,7 @@ REGISTRY: list[StoreScraper] = [
     LoyalFansStore(),
     GoddessSnowStore(),
     APClipsStore(),
+    YourVidsStore(),
     # ModelCentro/AdultCentro self-hosted sites: one instance per onboarded domain.
     ModelCentroStore("brookelynnebriar.com"),
 ]
