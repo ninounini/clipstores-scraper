@@ -19,7 +19,7 @@ from .stash import StashClient
 from .stores import UA, Logger, StoreScraper, for_url, noop
 
 # Per-field precedence when a scene matched several stores: best data first.
-# All seven backends are ranked so a multi-store merge has a deterministic winner.
+# All eight backends are ranked so a multi-store merge has a deterministic winner.
 _SOURCE_RANK = {
     "IWantClips": 0,
     "ManyVids": 1,
@@ -27,7 +27,8 @@ _SOURCE_RANK = {
     "LoyalFans": 3,
     "GoddessSnow": 4,
     "APClips": 5,
-    "ModelCentro": 6,
+    "YourVids": 6,
+    "ModelCentro": 7,
 }
 
 
