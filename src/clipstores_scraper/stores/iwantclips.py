@@ -56,6 +56,9 @@ def _to_clip(doc: dict) -> Clip:
     url = doc.get("content_url") or (
         "https://iwantclips.com/" + (doc.get("content_path") or "").lstrip("/")
     )
+    # The index sometimes returns dev-environment URLs in content_url; those don't
+    # exist on the public site (enrichment 404s), so normalize to production.
+    url = url.replace("staging.iwantclips.dev", "iwantclips.com")
     return Clip(
         title=(doc.get("title") or "").strip() or url,
         url=url,

@@ -28,6 +28,19 @@ def test_parse_exact_duration_and_date() -> None:
     assert hms_to_seconds("57:31") == 57 * 60 + 31  # bare MM:SS too
 
 
+def test_normalizes_staging_dev_url() -> None:
+    # The index sometimes returns dev-environment URLs in content_url; those pages
+    # don't exist on the public site (enrichment 404s), so they must be rewritten
+    # to production. Store id + clip id are identical -- only the host differs.
+    doc = {
+        "content_id": "5000001",
+        "content_url": "https://staging.iwantclips.dev/store/50001/DemoCreator/5000001/x",
+        "title": "x",
+    }
+    clip = _to_clip(doc)
+    assert clip.url == _STORE + "/5000001/x", clip.url
+
+
 def test_rescrape_refreshes_known_and_keeps_removed(monkeypatch) -> None:
     # A known clip carried over from the old card scrape: minute-rounded, no date.
     stale = Clip("Old", _STORE + "/5000001/x", "IWantClips", duration=180, date=None)
