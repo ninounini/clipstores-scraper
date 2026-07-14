@@ -24,7 +24,7 @@ def test_detail_uses_full_description_not_truncated_teaser() -> None:
     html = (
         '<h1 class="no-style">A Clip</h1>'
         '<span class="js-description">Line one.<br>Line two truncated at the '
-        'hundredth char and then cut off mid-</span>'
+        "hundredth char and then cut off mid-</span>"
         '<span class="js-full-description hidden">Line one.<br>Line two full.<br>'
         "Line three, the rest of it.</span>"
     )
