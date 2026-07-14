@@ -160,6 +160,11 @@ _TITLE_RE = re.compile(r'<h1[^>]*class="no-style"[^>]*>(.*?)</h1>', re.S)
 _DATE_RE = re.compile(r'date fix"[^>]*>.*?<em>(.*?)</em>', re.S)
 _OGIMAGE_RE = re.compile(r'<meta[^>]*name="og:image"[^>]*content="([^"]+)"')
 _MODEL_RE = re.compile(r'class="modelLink"[^>]*>(.*?)</a>', re.S)
+# IWC renders the description twice: a ~100-char truncated teaser
+# (js-description, with a "more" toggle) and the full text in a hidden
+# js-full-description span. Prefer the full one; fall back to the teaser for any
+# layout that omits it (e.g. a short desc that never needed truncating).
+_FULL_DESC_RE = re.compile(r'<span class="js-full-description[^"]*">(.*?)</span>', re.S)
 _DESC_RE = re.compile(r'<span class="js-description">(.*?)</span>', re.S)
 _HASHTAGS_RE = re.compile(r'hashtags[^"]*fix"[^>]*>(.*?)</div>', re.S)
 _CATEGORY_RE = re.compile(r'category fix"[^>]*>(.*?)</div>', re.S)
@@ -181,7 +186,7 @@ def _parse_clip_html(html_text: str) -> SceneData | None:
     date = _DATE_RE.search(html_text)
     cover = _OGIMAGE_RE.search(html_text)
     model = _MODEL_RE.search(html_text)
-    desc = _DESC_RE.search(html_text)
+    desc = _FULL_DESC_RE.search(html_text) or _DESC_RE.search(html_text)
     details = (
         strip_html(re.sub(r"<br\s*/?>", "\n", desc.group(1), flags=re.I))
         if desc
