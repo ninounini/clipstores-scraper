@@ -9,9 +9,41 @@ from clipstores_scraper.config import Config
 from clipstores_scraper.models import Clip
 from clipstores_scraper.stores import iwantclips
 from clipstores_scraper.stores.base import hms_to_seconds
-from clipstores_scraper.stores.iwantclips import IWantClipsStore, _to_clip
+from clipstores_scraper.stores.iwantclips import (
+    IWantClipsStore,
+    _parse_clip_html,
+    _to_clip,
+)
 
 _STORE = "https://iwantclips.com/store/50001/DemoCreator"
+
+
+def test_detail_uses_full_description_not_truncated_teaser() -> None:
+    # IWC ships a ~100-char truncated teaser (js-description) plus the full text in
+    # a hidden js-full-description span. We must scrape the full one.
+    html = (
+        '<h1 class="no-style">A Clip</h1>'
+        '<span class="js-description">Line one.<br>Line two truncated at the '
+        'hundredth char and then cut off mid-</span>'
+        '<span class="js-full-description hidden">Line one.<br>Line two full.<br>'
+        "Line three, the rest of it.</span>"
+    )
+    data = _parse_clip_html(html)
+    assert data is not None
+    assert data.details == "Line one.\nLine two full.\nLine three, the rest of it.", (
+        data.details
+    )
+
+
+def test_detail_falls_back_to_teaser_when_no_full_span() -> None:
+    # A short description needs no "more" toggle; the full span may be absent.
+    html = (
+        '<h1 class="no-style">A Clip</h1>'
+        '<span class="js-description">A short complete description.</span>'
+    )
+    data = _parse_clip_html(html)
+    assert data is not None
+    assert data.details == "A short complete description.", data.details
 
 
 def test_parse_exact_duration_and_date() -> None:
