@@ -23,7 +23,7 @@ build-backend = "hatchling.build"
 packages = ["src/clipstores_scraper"]
 
 [dependency-groups]
-dev = ["ruff>=0.15.21"]
+dev = ["ruff>=0.15.22"]
 
 [tool.ruff]
 line-length = 88
