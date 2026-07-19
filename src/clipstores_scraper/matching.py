@@ -267,9 +267,11 @@ _FAMILY = (
     r"|mother|father|brother|sister|auntie|cousin|daughter|nephew|niece|daddy"
     r"|uncle|aunt|mom|mum|dad|bro|sis|son)"
 )
-_STEPPED = rf"(?i)\bstep[-\s]?{_FAMILY}\b"
+# s? covers plurals (stepsisters); the trailing \b stops the match from
+# bleeding into longer words ("step-brotherly" is not a stepped "brother").
+_STEPPED = rf"(?i)\bstep[-\s]?{_FAMILY}s?\b"
 _CENSOR = r"\*{2,}"
-_BARE_FAMILY = rf"(?i)(?<!step)(?<!step-)(?<!step )\b{_FAMILY}\b"
+_BARE_FAMILY = rf"(?i)(?<!step-)(?<!step )\b{_FAMILY}s?\b"
 
 
 def destep_text(text: str) -> str:
@@ -282,7 +284,7 @@ def destep_text(text: str) -> str:
             return w[0].upper() + w[1:]
         return w
 
-    return re.sub(rf"(?i)\bstep[-\s]?({_FAMILY})", repl, text)
+    return re.sub(rf"(?i)\bstep[-\s]?({_FAMILY}s?)\b", repl, text)
 
 
 def has_bare_family(text: str) -> bool:

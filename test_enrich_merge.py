@@ -59,7 +59,11 @@ def test_destep_and_family_evidence():
         "Mom Won't Fuck Small Dicked Son"
     )
     assert destep_text("for step-Mommy and STEP-DADDY") == "for Mommy and DADDY"
+    # Plurals de-step; longer words that merely start with a family term don't.
+    assert destep_text("My Stepsisters Tease You") == "My Sisters Tease You"
+    assert destep_text("A step-brotherly gesture") == "A step-brotherly gesture"
     assert has_bare_family("Mommy Movie Night")
+    assert has_bare_family("Two Moms One Task")
     assert not has_bare_family("Step-Mommy Movie Night")
     assert not has_bare_family("Garden Notes")
 
