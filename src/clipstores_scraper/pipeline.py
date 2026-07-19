@@ -13,7 +13,13 @@ import httpx
 
 from . import cache, state
 from .config import Config
-from .matching import CONFIDENCE_RANK, best_match, clean_filename
+from .matching import (
+    CONFIDENCE_RANK,
+    best_match,
+    clean_filename,
+    titles_equivalent_under_tos,
+    tos_penalty,
+)
 from .models import Clip, MatchCandidate, Performer, PerformerStatus, Scene, SceneData
 from .stash import StashClient
 from .stores import UA, Logger, StoreScraper, for_url, noop
@@ -282,11 +288,19 @@ def _nonempty(d: SceneData) -> bool:
 def merge_details(items: list[SceneData]) -> SceneData:
     """Combine a scene's per-store metadata. Scalar fields take the highest-ranked
     store that has a value (iwc > manyvids > c4s > loyalfans, lower fills gaps);
-    tags are the union across all stores, deduped case-insensitively."""
+    tags are the union across all stores, deduped case-insensitively.
+
+    The title additionally prefers the least TOS-mangled variant: a store that
+    shows the real word beats a higher-ranked one whose title is censored
+    ("****") or carries a forced "step-" on a family relative."""
     ordered = sorted(items, key=lambda d: _SOURCE_RANK.get(d.source, 99))
+    by_title = sorted(
+        ordered,
+        key=lambda d: (tos_penalty(d.title or ""), _SOURCE_RANK.get(d.source, 99)),
+    )
     merged = SceneData(source="merged")
     for field_name in ("title", "date", "details", "code", "cover_url", "studio"):
-        for d in ordered:
+        for d in by_title if field_name == "title" else ordered:
             value = getattr(d, field_name)
             if value:
                 setattr(merged, field_name, value)
@@ -335,6 +349,17 @@ def enrich_scene(
     if merged is None:
         log("  no store metadata scraped")
         return False
+    # A scene title that is the same up to TOS mangling but strictly cleaner
+    # (uncensored word recovered from the filename, de-stepped relative) was
+    # fixed on purpose; re-enriching must not clobber it with the store's
+    # censored variant.
+    if (
+        state["title"]
+        and merged.title
+        and tos_penalty(state["title"]) < tos_penalty(merged.title)
+        and titles_equivalent_under_tos(state["title"], merged.title)
+    ):
+        merged.title = state["title"]
     tag_ids = stash.ensure_tags(merged.tags) if merged.tags else []
     marker = [config.enrich_tag] if config.enrich_tag else []
     all_tag_ids = list(dict.fromkeys(state["tag_ids"] + tag_ids + marker))

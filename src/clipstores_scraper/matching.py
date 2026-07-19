@@ -260,6 +260,51 @@ def score_clip(
     )
 
 
+# Words clip-store TOS mangle in titles: family relatives get a forced "step-"
+# prefix, banned words become "****". Longest-first so "mommy" wins over "mom".
+_FAMILY = (
+    r"(?:grandmother|grandfather|grandma|grandpa|granny|mommie|momma|mommy|mummy"
+    r"|mother|father|brother|sister|auntie|cousin|daughter|nephew|niece|daddy"
+    r"|uncle|aunt|mom|mum|dad|bro|sis|son)"
+)
+_STEPPED = rf"(?i)\bstep[-\s]?{_FAMILY}\b"
+_CENSOR = r"\*{2,}"
+
+
+def tos_penalty(title: str) -> int:
+    """How TOS-mangled a title is: censoring asterisks weigh 2, a forced
+    "step-" on a family relative weighs 1, clean is 0."""
+    return (2 if re.search(_CENSOR, title) else 0) + (
+        1 if re.search(_STEPPED, title) else 0
+    )
+
+
+def titles_equivalent_under_tos(a: str, b: str) -> bool:
+    """True when the two titles are the same up to TOS mangling: forced
+    "step-" prefixes are dropped from both, and a censoring *-run on either
+    side wildcards the hidden word."""
+    na, nb = _normalize_tos(a), _normalize_tos(b)
+    if "*" not in na and "*" not in nb:
+        return na == nb
+    if "*" in na and "*" in nb:
+        return na == nb  # both censored: only identical masking is equal
+    censored, clear = (na, nb) if "*" in na else (nb, na)
+    parts = [
+        re.escape(p).replace(r"\ ", r"\s*") for p in re.split(r"\s*\*+\s*", censored)
+    ]
+    return bool(re.fullmatch(r"[\w\s]{1,40}?".join(parts), clear))
+
+
+def _normalize_tos(s: str) -> str:
+    """Comparable form for TOS-equivalence: de-stepped, accent-folded,
+    lowercased, punctuation (except censoring asterisks) to whitespace."""
+    s = re.sub(_STEPPED, lambda m: re.sub(r"(?i)^step[-\s]?", "", m.group(0)), s)
+    decomposed = unicodedata.normalize("NFKD", s)
+    s = "".join(c for c in decomposed if not unicodedata.combining(c))
+    s = re.sub(r"[^\w\s*]", " ", s.lower())
+    return re.sub(r"\s+", " ", s).strip()
+
+
 # Higher is better; used to rank candidates so a corroborated match wins.
 CONFIDENCE_RANK = {"high": 2, "medium": 1, "low": 0}
 

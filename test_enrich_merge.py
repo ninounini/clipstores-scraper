@@ -17,6 +17,37 @@ def test_scalar_rank_and_gap_fill():
     assert merged.details == "iwc details"
 
 
+def test_title_prefers_least_tos_mangled():
+    # IWC outranks LoyalFans, but its title is censored / force-stepped; the
+    # clean LoyalFans title must win. Other scalars keep pure rank order.
+    iwc = SceneData(source="IWantClips", title="**** Oily Soles", details="iwc")
+    lf = SceneData(source="LoyalFans", title="Mesmerizing Oily Soles", details="lf")
+    merged = merge_details([iwc, lf])
+    assert merged.title == "Mesmerizing Oily Soles"
+    assert merged.details == "iwc"  # rank order untouched for other fields
+
+    iwc = SceneData(source="IWantClips", title="Step-Mommy Movie Night")
+    lf = SceneData(source="LoyalFans", title="Mommy Movie Night")
+    assert merge_details([iwc, lf]).title == "Mommy Movie Night"
+    # A censored title (weight 2) loses to a merely stepped one (weight 1).
+    mv = SceneData(source="ManyVids", title="**** Movie Night")
+    iwc = SceneData(source="IWantClips", title="Step-Mommy Movie Night")
+    assert merge_details([mv, iwc]).title == "Step-Mommy Movie Night"
+
+
+def test_titles_equivalent_under_tos():
+    from clipstores_scraper.matching import titles_equivalent_under_tos as eq
+
+    assert eq("Mommy Movie Night", "Step-Mommy Movie Night")
+    assert eq("Mesmerizing High Heels", "**** High Heels")
+    assert eq("Bro Tricks Sis into Breeding", "Step-Bro Tricks Step-Sis into Breeding")
+    assert not eq("Garden Notes", "Kitchen Notes")
+    assert not eq("Mommy Movie Night", "Mommy Game Night")
+    # Different words hidden by the same mask are not provably equal -- but the
+    # wildcard only vouches for the censored side vs a clear side.
+    assert not eq("**** Night", "**** Day")
+
+
 def test_tags_union_dedup_case_insensitive():
     a = SceneData(source="IWantClips", tags=["Feet", "POV"])
     b = SceneData(source="Clips4Sale", tags=["feet", "Tease"])
