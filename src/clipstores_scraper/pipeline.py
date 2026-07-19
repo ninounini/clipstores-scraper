@@ -378,16 +378,17 @@ def _image_area(data: bytes) -> int:
     unrecognized. Just enough to rank covers by resolution, not a decoder --
     truncated data short-slices to small ints and at worst ranks as 0."""
     if data[:8] == b"\x89PNG\r\n\x1a\n":
-        return int.from_bytes(data[16:20]) * int.from_bytes(data[20:24])
+        return int.from_bytes(data[16:20], "big") * int.from_bytes(data[20:24], "big")
     if data[:3] == b"\xff\xd8\xff":
         i = 2
         while i + 9 <= len(data) and data[i] == 0xFF:
-            marker, size = data[i + 1], int.from_bytes(data[i + 2 : i + 4])
+            marker = data[i + 1]
+            size = int.from_bytes(data[i + 2 : i + 4], "big")
             if marker == 0xDA:  # start of scan with no SOF seen: give up
                 break
             if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC):
-                h = int.from_bytes(data[i + 5 : i + 7])
-                return h * int.from_bytes(data[i + 7 : i + 9])
+                h = int.from_bytes(data[i + 5 : i + 7], "big")
+                return h * int.from_bytes(data[i + 7 : i + 9], "big")
             i += 2 + size
         return 0
     if data[:6] in (b"GIF87a", b"GIF89a"):

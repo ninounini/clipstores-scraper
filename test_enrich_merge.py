@@ -91,16 +91,16 @@ def test_image_area_parses_common_headers():
     png = (
         b"\x89PNG\r\n\x1a\n"
         + b"\x00\x00\x00\rIHDR"
-        + (640).to_bytes(4)
-        + (480).to_bytes(4)
+        + (640).to_bytes(4, "big")
+        + (480).to_bytes(4, "big")
     )
     jpeg = (
         b"\xff\xd8"  # SOI
         + b"\xff\xe0\x00\x10"
         + b"\x00" * 14  # APP0, length 16
         + b"\xff\xc0\x00\x11\x08"
-        + (480).to_bytes(2)
-        + (640).to_bytes(2)  # SOF0
+        + (480).to_bytes(2, "big")
+        + (640).to_bytes(2, "big")  # SOF0
     )
     gif = b"GIF89a" + (640).to_bytes(2, "little") + (480).to_bytes(2, "little")
     webp = (
