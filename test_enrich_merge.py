@@ -189,3 +189,18 @@ if __name__ == "__main__":
             fn()
             print(f"ok  {name}")
     print("all checks passed")
+
+
+def test_unmangle_official_fissting():
+    from clipstores_scraper.matching import titles_equivalent_under_tos as eq
+    from clipstores_scraper.matching import unmangle_official
+
+    assert (
+        unmangle_official("A Fisst Fucker's Valentine") == "A Fist Fucker's Valentine"
+    )
+    assert unmangle_official("FISSTING and fissting") == "FISTING and fisting"
+    assert unmangle_official("Assisting hands") == "Assisting hands"  # no false hit
+    # IWC's documented category renames read as equivalent under evidence.
+    assert eq("Horror Night", "Torment Night")
+    assert eq("Monster Cock", "Creature Cock")
+    assert eq("Fisting Lesson", "Fissting Lesson")

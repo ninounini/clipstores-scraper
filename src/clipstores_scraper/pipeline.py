@@ -24,6 +24,7 @@ from .matching import (
     stepped_count,
     titles_equivalent_under_tos,
     tos_penalty,
+    unmangle_official,
 )
 from .models import Clip, MatchCandidate, Performer, PerformerStatus, Scene, SceneData
 from .stash import StashClient
@@ -397,6 +398,11 @@ def enrich_scene(
     # description are mangling too, and safe to drop.
     if merged.details and merged.title and has_bare_family(merged.title):
         merged.details = destep_text(merged.details)
+    # Deterministic official misspellings ("fissting") are always reversible.
+    if merged.title:
+        merged.title = unmangle_official(merged.title)
+    if merged.details:
+        merged.details = unmangle_official(merged.details)
     tag_ids = stash.ensure_tags(merged.tags) if merged.tags else []
     marker = [config.enrich_tag] if config.enrich_tag else []
     all_tag_ids = list(dict.fromkeys(state["tag_ids"] + tag_ids + marker))

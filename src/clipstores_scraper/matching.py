@@ -289,8 +289,22 @@ _CONCEPT_STEMS = {
     "huff": "popper",
     "fume": "popper",
     "scent": "popper",
+    # IWC's own documented replacements: horror->torment, monster->creature.
+    "horror": "horror",
+    "torment": "horror",
+    "monster": "monster",
+    "creature": "monster",
+    "fist": "fist",
+    "fisst": "fist",
 }
 _EXPLICIT = r"(?i)\b(?:hypno|popper)\w*"
+
+
+def unmangle_official(text: str) -> str:
+    """Reverse deterministic store-mandated misspellings. "fissting" is IWC's
+    official alternate spelling of "fisting" -- never a real word, so it is
+    always safe to restore (case preserved)."""
+    return re.sub(r"(?i)\b(fis)s(t)", r"\1\2", text)
 
 
 def destep_text(text: str) -> str:
