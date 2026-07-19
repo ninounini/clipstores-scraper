@@ -260,6 +260,78 @@ def score_clip(
     )
 
 
+# Words clip-store TOS mangle in titles: family relatives get a forced "step-"
+# prefix, banned words become "****". Longest-first so "mommy" wins over "mom".
+_FAMILY = (
+    r"(?:grandmother|grandfather|grandma|grandpa|granny|mommie|momma|mommy|mummy"
+    r"|mother|father|brother|sister|auntie|cousin|daughter|nephew|niece|daddy"
+    r"|uncle|aunt|mom|mum|dad|bro|sis|son)"
+)
+# s? covers plurals (stepsisters); the trailing \b stops the match from
+# bleeding into longer words ("step-brotherly" is not a stepped "brother").
+_STEPPED = rf"(?i)\bstep[-\s]?{_FAMILY}s?\b"
+_CENSOR = r"\*{2,}"
+_BARE_FAMILY = rf"(?i)(?<!step-)(?<!step )\b{_FAMILY}s?\b"
+
+
+def destep_text(text: str) -> str:
+    """Drop forced "step-" prefixes from family relatives, carrying a capital
+    that sat on "Step" over to the term ("Stepmom" -> "Mom")."""
+
+    def repl(m: re.Match) -> str:
+        w = m.group(1)
+        if m.group(0)[0].isupper() and w[0].islower():
+            return w[0].upper() + w[1:]
+        return w
+
+    return re.sub(rf"(?i)\bstep[-\s]?({_FAMILY}s?)\b", repl, text)
+
+
+def has_bare_family(text: str) -> bool:
+    """True when the text names a family relative WITHOUT a step- prefix --
+    the evidence that the seller's original wording is un-stepped."""
+    return bool(re.search(_BARE_FAMILY, text))
+
+
+def tos_penalty(title: str) -> int:
+    """How TOS-mangled a title is: censoring asterisks weigh 2, a forced
+    "step-" on a family relative weighs 1, clean is 0."""
+    return (2 if re.search(_CENSOR, title) else 0) + (
+        1 if re.search(_STEPPED, title) else 0
+    )
+
+
+def stepped_count(text: str) -> int:
+    """How many step-<relative> occurrences the text carries."""
+    return len(re.findall(_STEPPED, text))
+
+
+def titles_equivalent_under_tos(a: str, b: str) -> bool:
+    """True when the two titles are the same up to TOS mangling: forced
+    "step-" prefixes are dropped from both, and a censoring *-run on either
+    side wildcards the hidden word."""
+    na, nb = _normalize_tos(a), _normalize_tos(b)
+    if "*" not in na and "*" not in nb:
+        return na == nb
+    if "*" in na and "*" in nb:
+        return na == nb  # both censored: only identical masking is equal
+    censored, clear = (na, nb) if "*" in na else (nb, na)
+    parts = [
+        re.escape(p).replace(r"\ ", r"\s*") for p in re.split(r"\s*\*+\s*", censored)
+    ]
+    return bool(re.fullmatch(r"[^*]{1,40}?".join(parts), clear))
+
+
+def _normalize_tos(s: str) -> str:
+    """Comparable form for TOS-equivalence: de-stepped, accent-folded,
+    lowercased, punctuation (except censoring asterisks) to whitespace."""
+    s = re.sub(_STEPPED, lambda m: re.sub(r"(?i)^step[-\s]?", "", m.group(0)), s)
+    decomposed = unicodedata.normalize("NFKD", s)
+    s = "".join(c for c in decomposed if not unicodedata.combining(c))
+    s = re.sub(r"[^\w\s*]", " ", s.lower())
+    return re.sub(r"\s+", " ", s).strip()
+
+
 # Higher is better; used to rank candidates so a corroborated match wins.
 CONFIDENCE_RANK = {"high": 2, "medium": 1, "low": 0}
 

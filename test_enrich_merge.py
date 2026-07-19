@@ -17,6 +17,78 @@ def test_scalar_rank_and_gap_fill():
     assert merged.details == "iwc details"
 
 
+def test_title_prefers_least_tos_mangled():
+    # IWC outranks LoyalFans, but its title is censored / force-stepped; the
+    # clean LoyalFans title must win. Other scalars keep pure rank order.
+    iwc = SceneData(source="IWantClips", title="**** Oily Soles", details="iwc")
+    lf = SceneData(source="LoyalFans", title="Mesmerizing Oily Soles", details="lf")
+    merged = merge_details([iwc, lf])
+    assert merged.title == "Mesmerizing Oily Soles"
+    assert merged.details == "iwc"  # rank order untouched for other fields
+
+    iwc = SceneData(source="IWantClips", title="Step-Mommy Movie Night")
+    lf = SceneData(source="LoyalFans", title="Mommy Movie Night")
+    assert merge_details([iwc, lf]).title == "Mommy Movie Night"
+    # A censored title (weight 2) loses to a merely stepped one (weight 1).
+    mv = SceneData(source="ManyVids", title="**** Movie Night")
+    iwc = SceneData(source="IWantClips", title="Step-Mommy Movie Night")
+    assert merge_details([mv, iwc]).title == "Step-Mommy Movie Night"
+
+
+def test_titles_equivalent_under_tos():
+    from clipstores_scraper.matching import titles_equivalent_under_tos as eq
+
+    assert eq("Mommy Movie Night", "Step-Mommy Movie Night")
+    assert eq("Mesmerizing High Heels", "**** High Heels")
+    assert eq("Bro Tricks Sis into Breeding", "Step-Bro Tricks Step-Sis into Breeding")
+    assert not eq("Garden Notes", "Kitchen Notes")
+    assert not eq("Mommy Movie Night", "Mommy Game Night")
+    # Different words hidden by the same mask are not provably equal -- but the
+    # wildcard only vouches for the censored side vs a clear side.
+    assert not eq("**** Night", "**** Day")
+    # Euphemism swaps (mesmerize vs hypnotic) are NOT equivalence: recovery
+    # must come from a real source (another store / the filename), never from
+    # a word-substitution dictionary.
+    assert not eq("Hypnotic Submission", "Mesmerize Submission")
+
+
+def test_destep_and_family_evidence():
+    from clipstores_scraper.matching import destep_text, has_bare_family
+
+    assert destep_text("Stepmom Won't Fuck Small Dicked Stepson") == (
+        "Mom Won't Fuck Small Dicked Son"
+    )
+    assert destep_text("for step-Mommy and STEP-DADDY") == "for Mommy and DADDY"
+    # Plurals de-step; longer words that merely start with a family term don't.
+    assert destep_text("My Stepsisters Tease You") == "My Sisters Tease You"
+    assert destep_text("A step-brotherly gesture") == "A step-brotherly gesture"
+    assert has_bare_family("Mommy Movie Night")
+    assert has_bare_family("Two Moms One Task")
+    assert not has_bare_family("Step-Mommy Movie Night")
+    assert not has_bare_family("Garden Notes")
+
+
+def test_details_prefer_unstepped_prose():
+    # Equal on censor masks (none), so the un-stepped LoyalFans description
+    # must beat higher-ranked IWC's step-forced prose.
+    iwc = SceneData(source="IWantClips", details="Your step-sister turns up.")
+    lf = SceneData(source="LoyalFans", details="Your sister turns up.")
+    assert merge_details([iwc, lf]).details == "Your sister turns up."
+
+
+def test_details_prefer_fewest_censor_masks():
+    # IWC outranks LoyalFans but its description is riddled with masks; the
+    # clean LoyalFans prose must win, while markdown "**Note:" is not a mask.
+    iwc = SceneData(
+        source="IWantClips", details="You will **** the urge and s*** deeply."
+    )
+    lf = SceneData(
+        source="LoyalFans",
+        details="You will fight the urge and sink deeply. **Note: custom.",
+    )
+    assert merge_details([iwc, lf]).details.startswith("You will fight")
+
+
 def test_tags_union_dedup_case_insensitive():
     a = SceneData(source="IWantClips", tags=["Feet", "POV"])
     b = SceneData(source="Clips4Sale", tags=["feet", "Tease"])
@@ -116,10 +188,8 @@ def test_image_area_parses_common_headers():
 
 
 if __name__ == "__main__":
-    test_scalar_rank_and_gap_fill()
-    test_tags_union_dedup_case_insensitive()
-    test_cover_falls_back_when_top_ranked_fails()
-    test_cover_highest_resolution_wins()
-    test_cover_rank_breaks_resolution_ties()
-    test_image_area_parses_common_headers()
-    print("ok")
+    for name, fn in sorted(globals().items()):
+        if name.startswith("test_") and callable(fn):
+            fn()
+            print(f"ok  {name}")
+    print("all checks passed")

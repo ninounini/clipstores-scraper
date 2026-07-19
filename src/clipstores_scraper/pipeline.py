@@ -8,12 +8,22 @@ functions.
 from __future__ import annotations
 
 import base64
+import re
 
 import httpx
 
 from . import cache, state
 from .config import Config
-from .matching import CONFIDENCE_RANK, best_match, clean_filename
+from .matching import (
+    CONFIDENCE_RANK,
+    best_match,
+    clean_filename,
+    destep_text,
+    has_bare_family,
+    stepped_count,
+    titles_equivalent_under_tos,
+    tos_penalty,
+)
 from .models import Clip, MatchCandidate, Performer, PerformerStatus, Scene, SceneData
 from .stash import StashClient
 from .stores import UA, Logger, StoreScraper, for_url, noop
@@ -272,6 +282,18 @@ def apply_url(stash: StashClient, scene_id: str, url: str) -> bool:
     return True
 
 
+def _censor_marks(text: str) -> int:
+    """Count word-censoring *-masks in prose ("t****", "**** the urge"),
+    skimming past markdown-style emphasis ("**Note:"). Only used to RANK store
+    descriptions, so the odd markdown miscount is harmless -- markup appears in
+    every store's copy of the same text."""
+    return (
+        len(re.findall(r"\w\*{2,}", text))
+        + len(re.findall(r"\*{2,}(?=[a-z])", text))
+        + len(re.findall(r"(?<![\w*])\*{3,}(?![\w*])", text))
+    )
+
+
 def _nonempty(d: SceneData) -> bool:
     """True if a store actually returned something usable (not a bounced/blank page)."""
     return bool(
@@ -282,11 +304,31 @@ def _nonempty(d: SceneData) -> bool:
 def merge_details(items: list[SceneData]) -> SceneData:
     """Combine a scene's per-store metadata. Scalar fields take the highest-ranked
     store that has a value (iwc > manyvids > c4s > loyalfans, lower fills gaps);
-    tags are the union across all stores, deduped case-insensitively."""
+    tags are the union across all stores, deduped case-insensitively.
+
+    The title additionally prefers the least TOS-mangled variant: a store that
+    shows the real word beats a higher-ranked one whose title is censored
+    ("****") or carries a forced "step-" on a family relative."""
     ordered = sorted(items, key=lambda d: _SOURCE_RANK.get(d.source, 99))
+    by_title = sorted(
+        ordered,
+        key=lambda d: (tos_penalty(d.title or ""), _SOURCE_RANK.get(d.source, 99)),
+    )
+    # Details likewise prefer the least-edited prose: a description without
+    # "****" masks beats a higher-ranked one riddled with them, and with masks
+    # equal, one without forced step- prefixes beats a stepped one.
+    by_details = sorted(
+        ordered,
+        key=lambda d: (
+            _censor_marks(d.details or ""),
+            stepped_count(d.details or ""),
+            _SOURCE_RANK.get(d.source, 99),
+        ),
+    )
+    picks = {"title": by_title, "details": by_details}
     merged = SceneData(source="merged")
     for field_name in ("title", "date", "details", "code", "cover_url", "studio"):
-        for d in ordered:
+        for d in picks.get(field_name, ordered):
             value = getattr(d, field_name)
             if value:
                 setattr(merged, field_name, value)
@@ -335,6 +377,22 @@ def enrich_scene(
     if merged is None:
         log("  no store metadata scraped")
         return False
+    # A scene title that is the same up to TOS mangling but strictly cleaner
+    # (uncensored word recovered from the filename, de-stepped relative) was
+    # fixed on purpose; re-enriching must not clobber it with the store's
+    # mangled variant.
+    if (
+        state["title"]
+        and merged.title
+        and tos_penalty(state["title"]) < tos_penalty(merged.title)
+        and titles_equivalent_under_tos(state["title"], merged.title)
+    ):
+        merged.title = state["title"]
+    # When the (final) title names a bare family relative, the seller's
+    # original wording is un-stepped -- so the store's forced "step-"s in the
+    # description are mangling too, and safe to drop.
+    if merged.details and merged.title and has_bare_family(merged.title):
+        merged.details = destep_text(merged.details)
     tag_ids = stash.ensure_tags(merged.tags) if merged.tags else []
     marker = [config.enrich_tag] if config.enrich_tag else []
     all_tag_ids = list(dict.fromkeys(state["tag_ids"] + tag_ids + marker))
