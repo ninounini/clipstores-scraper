@@ -269,6 +269,47 @@ _FAMILY = (
 )
 _STEPPED = rf"(?i)\bstep[-\s]?{_FAMILY}\b"
 _CENSOR = r"\*{2,}"
+_BARE_FAMILY = rf"(?i)(?<!step)(?<!step-)(?<!step )\b{_FAMILY}\b"
+
+# Banned words vs the store-safe euphemisms sellers swap in (stem -> concept).
+# Used only for equivalence -- a euphemism is never penalized on its own, since
+# absent other evidence it may simply BE the seller's title.
+_CONCEPT_STEMS = {
+    "hypno": "hypno",
+    "popper": "popper",
+    "mesmer": "hypno",
+    "tranc": "hypno",
+    "entranc": "hypno",
+    "captivat": "hypno",
+    "brainwash": "hypno",
+    "enchant": "hypno",
+    "spellb": "hypno",
+    "aroma": "popper",
+    "sniff": "popper",
+    "huff": "popper",
+    "fume": "popper",
+    "scent": "popper",
+}
+_EXPLICIT = r"(?i)\b(?:hypno|popper)\w*"
+
+
+def destep_text(text: str) -> str:
+    """Drop forced "step-" prefixes from family relatives, carrying a capital
+    that sat on "Step" over to the term ("Stepmom" -> "Mom")."""
+
+    def repl(m: re.Match) -> str:
+        w = m.group(1)
+        if m.group(0)[0].isupper() and w[0].islower():
+            return w[0].upper() + w[1:]
+        return w
+
+    return re.sub(rf"(?i)\bstep[-\s]?({_FAMILY})", repl, text)
+
+
+def has_bare_family(text: str) -> bool:
+    """True when the text names a family relative WITHOUT a step- prefix --
+    the evidence that the seller's original wording is un-stepped."""
+    return bool(re.search(_BARE_FAMILY, text))
 
 
 def tos_penalty(title: str) -> int:
@@ -277,6 +318,13 @@ def tos_penalty(title: str) -> int:
     return (2 if re.search(_CENSOR, title) else 0) + (
         1 if re.search(_STEPPED, title) else 0
     )
+
+
+def explicit_words(text: str) -> int:
+    """How many banned-on-strict-stores words the text spells out (hypno...,
+    poppers...). A store can only lose these, never add them, so more explicit
+    means closer to the seller's original."""
+    return len(re.findall(_EXPLICIT, text))
 
 
 def titles_equivalent_under_tos(a: str, b: str) -> bool:
@@ -292,17 +340,25 @@ def titles_equivalent_under_tos(a: str, b: str) -> bool:
     parts = [
         re.escape(p).replace(r"\ ", r"\s*") for p in re.split(r"\s*\*+\s*", censored)
     ]
-    return bool(re.fullmatch(r"[\w\s]{1,40}?".join(parts), clear))
+    # [^*]: the hidden word may be anything already normalized -- including a
+    # folded concept token like "~hypno".
+    return bool(re.fullmatch(r"[^*]{1,40}?".join(parts), clear))
 
 
 def _normalize_tos(s: str) -> str:
     """Comparable form for TOS-equivalence: de-stepped, accent-folded,
-    lowercased, punctuation (except censoring asterisks) to whitespace."""
+    lowercased, punctuation (except censoring asterisks) to whitespace, and
+    banned-word euphemisms folded to their concept ("mesmerizing" and
+    "hypnotic" both become "~hypno") so a substitution reads as equal."""
     s = re.sub(_STEPPED, lambda m: re.sub(r"(?i)^step[-\s]?", "", m.group(0)), s)
     decomposed = unicodedata.normalize("NFKD", s)
     s = "".join(c for c in decomposed if not unicodedata.combining(c))
     s = re.sub(r"[^\w\s*]", " ", s.lower())
-    return re.sub(r"\s+", " ", s).strip()
+    words = [
+        next((f"~{c}" for stem, c in _CONCEPT_STEMS.items() if w.startswith(stem)), w)
+        for w in s.split()
+    ]
+    return " ".join(words)
 
 
 # Higher is better; used to rank candidates so a corroborated match wins.

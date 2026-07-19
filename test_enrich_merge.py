@@ -46,6 +46,35 @@ def test_titles_equivalent_under_tos():
     # Different words hidden by the same mask are not provably equal -- but the
     # wildcard only vouches for the censored side vs a clear side.
     assert not eq("**** Night", "**** Day")
+    # Banned-word euphemisms fold to the same concept as the explicit word.
+    assert eq("Hypnotic Submission", "Mesmerize Submission")
+    assert eq("Poppers Training", "Aroma Training")
+    assert not eq("Poppers Training", "Mesmerize Training")  # different concepts
+
+
+def test_destep_and_family_evidence():
+    from clipstores_scraper.matching import destep_text, has_bare_family
+
+    assert destep_text("Stepmom Won't Fuck Small Dicked Stepson") == (
+        "Mom Won't Fuck Small Dicked Son"
+    )
+    assert destep_text("for step-Mommy and STEP-DADDY") == "for Mommy and DADDY"
+    assert has_bare_family("Mommy Movie Night")
+    assert not has_bare_family("Step-Mommy Movie Night")
+    assert not has_bare_family("Garden Notes")
+
+
+def test_details_prefer_fewest_censor_masks():
+    # IWC outranks LoyalFans but its description is riddled with masks; the
+    # clean LoyalFans prose must win, while markdown "**Note:" is not a mask.
+    iwc = SceneData(
+        source="IWantClips", details="You will **** the urge and s*** deeply."
+    )
+    lf = SceneData(
+        source="LoyalFans",
+        details="You will fight the urge and sink deeply. **Note: custom.",
+    )
+    assert merge_details([iwc, lf]).details.startswith("You will fight")
 
 
 def test_tags_union_dedup_case_insensitive():
@@ -147,10 +176,8 @@ def test_image_area_parses_common_headers():
 
 
 if __name__ == "__main__":
-    test_scalar_rank_and_gap_fill()
-    test_tags_union_dedup_case_insensitive()
-    test_cover_falls_back_when_top_ranked_fails()
-    test_cover_highest_resolution_wins()
-    test_cover_rank_breaks_resolution_ties()
-    test_image_area_parses_common_headers()
-    print("ok")
+    for name, fn in sorted(globals().items()):
+        if name.startswith("test_") and callable(fn):
+            fn()
+            print(f"ok  {name}")
+    print("all checks passed")
