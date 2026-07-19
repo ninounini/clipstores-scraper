@@ -19,12 +19,10 @@ from .matching import (
     best_match,
     clean_filename,
     destep_text,
-    explicit_words,
     has_bare_family,
     stepped_count,
     titles_equivalent_under_tos,
     tos_penalty,
-    unmangle_official,
 )
 from .models import Clip, MatchCandidate, Performer, PerformerStatus, Scene, SceneData
 from .stash import StashClient
@@ -380,17 +378,14 @@ def enrich_scene(
         log("  no store metadata scraped")
         return False
     # A scene title that is the same up to TOS mangling but strictly cleaner
-    # (uncensored word recovered from the filename, de-stepped relative, an
-    # explicit word restored over a store euphemism) was fixed on purpose;
-    # re-enriching must not clobber it with the store's mangled variant.
+    # (uncensored word recovered from the filename, de-stepped relative) was
+    # fixed on purpose; re-enriching must not clobber it with the store's
+    # mangled variant.
     if (
         state["title"]
         and merged.title
+        and tos_penalty(state["title"]) < tos_penalty(merged.title)
         and titles_equivalent_under_tos(state["title"], merged.title)
-        and (
-            tos_penalty(state["title"]) < tos_penalty(merged.title)
-            or explicit_words(state["title"]) > explicit_words(merged.title)
-        )
     ):
         merged.title = state["title"]
     # When the (final) title names a bare family relative, the seller's
@@ -398,11 +393,6 @@ def enrich_scene(
     # description are mangling too, and safe to drop.
     if merged.details and merged.title and has_bare_family(merged.title):
         merged.details = destep_text(merged.details)
-    # Deterministic official misspellings ("fissting") are always reversible.
-    if merged.title:
-        merged.title = unmangle_official(merged.title)
-    if merged.details:
-        merged.details = unmangle_official(merged.details)
     tag_ids = stash.ensure_tags(merged.tags) if merged.tags else []
     marker = [config.enrich_tag] if config.enrich_tag else []
     all_tag_ids = list(dict.fromkeys(state["tag_ids"] + tag_ids + marker))
