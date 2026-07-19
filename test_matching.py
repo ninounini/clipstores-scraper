@@ -246,6 +246,96 @@ def test_sequence_number_difference_is_not_a_match() -> None:
     assert title_score("Bratty Tease Part 2", "Bratty Tease Part 2", []) > 0.9
 
 
+def test_day_series_numbers_must_agree() -> None:
+    # Episode series ("Day 1/2/3"): differing numbers are a hard zero wherever
+    # they sit in the title, equal numbers score normally, and an un-numbered
+    # side is the ambiguous case -- capped below TITLE_MIN (never self-standing)
+    # but above zero so duration+date corroboration can still rescue it.
+    assert title_score("Garden Diary Day 2", "Garden Diary Day 3", []) == 0.0
+    assert title_score("Garden Diary Day 12", "Garden Diary Day 1", []) == 0.0
+    assert title_score("Garden Diary Day 2", "Garden Diary Day 2", []) == 1.0
+    assert 0.7 <= title_score("Garden Diary Day 2", "Garden Diary", []) < 0.85
+    assert 0.7 <= title_score("Garden Diary", "Garden Diary Day 1", []) < 0.85
+
+
+def test_numbering_style_variants_still_match() -> None:
+    # The same number written differently on the two sides must compare equal:
+    # "Day2"/"Pt.2"/"ep.21" vs their spaced twins, and dotted/dashed ranges
+    # ("1.2", "1-4") vs the store title's punctuation-stripped form.
+    assert title_score("Diary Day2", "Diary Day 2", []) == 1.0
+    assert (
+        title_score(
+            "Sketch'd ep.21: Charcoal Study", "Sketch'd ep.21: Charcoal Study", []
+        )
+        == 1.0
+    )
+    assert title_score("Weekend Marathon 1-4", "Weekend Marathon 1-4", []) == 1.0
+    assert title_score("Overdrive EXTREME 1.2", "Overdrive EXTREME 1.2", []) == 1.0
+    # Leetspeak (censor-dodging digit-for-letter swaps) is NOT a sequence
+    # number: "Meditati0n 3" must still match "Meditation 3", not conflict on the 0.
+    assert title_score("Morning Meditation 3", "Morning Meditati0n 3", []) > 0.9
+
+
+def test_sequel_number_missing_from_clip_is_not_high() -> None:
+    # The scene is part 2 but this store only carries the un-numbered part 1,
+    # with a duration delta inside tolerance. A ~0.95 title used to auto-apply
+    # as "high"; the one-sided number cap must reject it (the date is years
+    # off, so corroboration can't rescue it).
+    perf = Performer(id="p", name="nova blake")
+    part1 = Clip(
+        title="Evening Pottery Class",
+        url="http://mv/1",
+        source="ManyVids",
+        duration=556,
+        date="2023-01-15",
+    )
+    s = _scene("401", "Nova_Blake_Evening_Pottery_Class_2.mp4", 518)
+    s.date = "2026-06-23"
+    assert match_scenes([s], [part1], perf) == []
+
+
+def test_sequel_number_missing_but_corroborated_is_medium() -> None:
+    # Some stores title part 2 without the "2". Exact duration AND date
+    # agreement must rescue it -- but only as a reviewable "medium", not "high".
+    perf = Performer(id="p", name="nova blake")
+    clip = Clip(
+        title="Evening Pottery Class",
+        url="http://lf/1",
+        source="LoyalFans",
+        duration=518,
+        date="2026-06-23",
+    )
+    s = _scene("401", "Nova_Blake_Evening_Pottery_Class_2.mp4", 518)
+    s.date = "2026-06-23"
+    results = match_scenes([s], [clip], perf)
+    assert len(results) == 1, results
+    assert results[0].confidence == "medium", results[0]
+
+
+def test_numbered_sequel_prefers_its_own_number() -> None:
+    # Both parts in the catalog: part 2 must win outright for the part-2 scene.
+    perf = Performer(id="p", name="nova blake")
+    clips = [
+        Clip(
+            title="Evening Pottery Class",
+            url="http://x/1",
+            source="IWantClips",
+            duration=556,
+        ),
+        Clip(
+            title="Evening Pottery Class 2",
+            url="http://x/2",
+            source="IWantClips",
+            duration=518,
+        ),
+    ]
+    s = _scene("401", "Nova_Blake_Evening_Pottery_Class_2.mp4", 518)
+    results = match_scenes([s], clips, perf)
+    assert len(results) == 1, results
+    assert results[0].clip.url == "http://x/2"
+    assert results[0].confidence == "high"
+
+
 def test_equal_confidence_prefers_higher_title_score() -> None:
     # Two "medium" candidates (no duration/date corroboration): best_match's
     # tiebreak must keep the exact title over the near-miss.
