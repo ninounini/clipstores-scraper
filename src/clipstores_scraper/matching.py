@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from collections import Counter
 from datetime import date
 
 from rapidfuzz import fuzz
@@ -68,6 +69,11 @@ def clean_filename(name: str, performer_names: list[str]) -> str:
     # ponytail: leading date only; handle trailing dates if those show up.
     text = re.sub(_LEADING_DATE, " ", text)
     text = re.sub(_CODECS, " ", text)
+    # Glue dotted/dashed numbers ("1.2", "1-4") BEFORE the separator splits
+    # below tear them apart: _normalize strips the punctuation from store
+    # titles without a space ("1.2" -> "12"), so the filename side must land on
+    # the same token or the sequel guard sees phantom numbers.
+    text = re.sub(r"(?<=\d)[.\-–—](?=\d)", "", text)
     # Dots are the most common separator in release names (Name.Title.1080p),
     # so treat them like _ and +. Done after codec stripping, which relies on
     # the dot in tokens like "h.264" still being present.
@@ -113,6 +119,14 @@ def _normalize(s: str) -> str:
     decomposed = unicodedata.normalize("NFKD", s)
     s = "".join(c for c in decomposed if not unicodedata.combining(c))
     s = re.sub(r"[^\w\s]", "", s.lower())
+    # Split digits at word EDGES so "ep.21"/"Pt.2"/"Part2"/"2days" (punctuation
+    # just stripped, or none to begin with) expose the same numeric token as
+    # their spaced twins ("ep 21", "part 2") for both the fuzzy score and the
+    # sequel-number guard. Edges only: a digit flanked by letters on both sides
+    # ("Sm0thered", "Coerci0n") is censor-dodging leetspeak, not a sequence
+    # number, and must stay inside its word.
+    s = re.sub(r"\b(\d+)(?=[a-z])", r"\1 ", s)
+    s = re.sub(r"(?<=[a-z])(\d+)\b", r" \1", s)
     s = re.sub(r"\s+", " ", s).strip()
     return _glue_orphan_letters(s)
 
@@ -156,23 +170,40 @@ def _is_orphan(tok: str) -> bool:
 
 
 def title_score(query: str, clip_title: str, performer_names: list[str]) -> float:
-    """Fuzzy similarity in 0..1, order-insensitive, with a guard for clips that
-    differ only by a sequence number (Part 2 vs Part 3, "Tease 4" vs "Tease 5")."""
+    """Fuzzy similarity in 0..1, order-insensitive, with a sequel guard.
+
+    Titles whose numbers contradict ("Part 2" vs "Part 3") score 0: same words,
+    different clip. When only ONE side carries a number ("Tease 2" vs "Tease")
+    the store may have dropped the sequel number (LoyalFans often does) or the
+    clip may be the un-numbered part 1 -- ambiguous, so the score is capped
+    below TITLE_MIN: never self-standing, never "high", but still rescuable by
+    the duration+date corroboration path as a reviewable "medium"."""
     q = _normalize(query)
     t = _normalize(clean_title(clip_title, performer_names))
     if not q or not t:
         return 0.0
-    if _differs_by_number_only(q, t):
+    score = fuzz.token_sort_ratio(q, t) / 100.0
+    mismatch = _number_mismatch(q, t)
+    if mismatch == "conflict":
         return 0.0
-    return fuzz.token_sort_ratio(q, t) / 100.0
+    if mismatch == "one-sided":
+        return min(score, TITLE_MIN - 0.01)
+    return score
 
 
-def _differs_by_number_only(a: str, b: str) -> bool:
-    wa, wb = a.split(), b.split()
-    if len(wa) != len(wb):
-        return False
-    diffs = [(x, y) for x, y in zip(wa, wb, strict=False) if x != y]
-    return len(diffs) == 1 and all(x.isdigit() and y.isdigit() for x, y in diffs)
+def _number_mismatch(a: str, b: str) -> str | None:
+    """Compare the numeric tokens of two titles ("part 2" -> {2}).
+
+    None: same numbers (or none) on both sides. "one-sided": one side's numbers
+    are a subset of the other's ("tease 2" vs "tease"). "conflict": both carry
+    numbers that disagree ("part 2" vs "part 3").
+    ponytail: digit tokens only; spelled-out ("part two") / roman ("II")
+    sequels still rely on the fuzzy score."""
+    ca = Counter(tok for tok in a.split() if tok.isdigit())
+    cb = Counter(tok for tok in b.split() if tok.isdigit())
+    if ca == cb:
+        return None
+    return "one-sided" if ca <= cb or cb <= ca else "conflict"
 
 
 def _date_delta_days(a: str | None, b: str | None) -> int | None:
