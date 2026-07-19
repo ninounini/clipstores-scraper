@@ -327,6 +327,11 @@ def explicit_words(text: str) -> int:
     return len(re.findall(_EXPLICIT, text))
 
 
+def stepped_count(text: str) -> int:
+    """How many step-<relative> occurrences the text carries."""
+    return len(re.findall(_STEPPED, text))
+
+
 def titles_equivalent_under_tos(a: str, b: str) -> bool:
     """True when the two titles are the same up to TOS mangling: forced
     "step-" prefixes are dropped from both, and a censoring *-run on either

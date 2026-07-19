@@ -21,6 +21,7 @@ from .matching import (
     destep_text,
     explicit_words,
     has_bare_family,
+    stepped_count,
     titles_equivalent_under_tos,
     tos_penalty,
 )
@@ -314,11 +315,16 @@ def merge_details(items: list[SceneData]) -> SceneData:
         ordered,
         key=lambda d: (tos_penalty(d.title or ""), _SOURCE_RANK.get(d.source, 99)),
     )
-    # Details likewise prefer the least-censored prose: a description without
-    # "****" masks beats a higher-ranked one riddled with them.
+    # Details likewise prefer the least-edited prose: a description without
+    # "****" masks beats a higher-ranked one riddled with them, and with masks
+    # equal, one without forced step- prefixes beats a stepped one.
     by_details = sorted(
         ordered,
-        key=lambda d: (_censor_marks(d.details or ""), _SOURCE_RANK.get(d.source, 99)),
+        key=lambda d: (
+            _censor_marks(d.details or ""),
+            stepped_count(d.details or ""),
+            _SOURCE_RANK.get(d.source, 99),
+        ),
     )
     picks = {"title": by_title, "details": by_details}
     merged = SceneData(source="merged")

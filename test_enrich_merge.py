@@ -64,6 +64,14 @@ def test_destep_and_family_evidence():
     assert not has_bare_family("Garden Notes")
 
 
+def test_details_prefer_unstepped_prose():
+    # Equal on censor masks (none), so the un-stepped LoyalFans description
+    # must beat higher-ranked IWC's step-forced prose.
+    iwc = SceneData(source="IWantClips", details="Your step-sister turns up.")
+    lf = SceneData(source="LoyalFans", details="Your sister turns up.")
+    assert merge_details([iwc, lf]).details == "Your sister turns up."
+
+
 def test_details_prefer_fewest_censor_masks():
     # IWC outranks LoyalFans but its description is riddled with masks; the
     # clean LoyalFans prose must win, while markdown "**Note:" is not a mask.
