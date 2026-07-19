@@ -342,7 +342,7 @@ def enrich_scene(
     # own studio name is inconsistent across sites and just spawns duplicates, so we
     # ignore merged.studio here. None (no clear majority) leaves the studio unset.
     studio_id = stash.studio_for_performers(state["performer_ids"])
-    cover = _first_cover(datas)
+    cover = _best_cover(datas)
     stash.update_scene_full(
         scene_id,
         title=merged.title,
@@ -356,22 +356,64 @@ def enrich_scene(
     return True
 
 
-def _first_cover(datas: list[SceneData]) -> str | None:
-    """The highest-ranked store cover that actually downloads. ``merge_details``
-    collapses to a single ``cover_url``; if that store's image fails to fetch we'd
-    lose the cover entirely, so fall through the ranked candidates (same precedence
-    as the merge) until one succeeds."""
+def _best_cover(datas: list[SceneData]) -> str | None:
+    """The store cover with the most pixels: every store's cover is fetched and
+    measured, and the largest wins (stores serve the same art at very different
+    resolutions). Rank order (same precedence as the merge) breaks ties and
+    unmeasurable images, so with nothing measurable this degrades to the old
+    highest-ranked-cover-that-downloads behavior."""
+    best: str | None = None
+    best_area = -1
     for d in sorted(datas, key=lambda d: _SOURCE_RANK.get(d.source, 99)):
-        if d.cover_url:
-            cover = _fetch_cover(d.cover_url)
-            if cover:
-                return cover
-    return None
+        if not d.cover_url:
+            continue
+        fetched = _fetch_cover(d.cover_url)
+        if fetched is not None and fetched[1] > best_area:
+            best, best_area = fetched
+    return best
 
 
-def _fetch_cover(url: str) -> str | None:
-    """Download a cover and return it as a base64 data URI for sceneUpdate, or
-    None if it can't be fetched (a missing cover shouldn't fail the whole enrich)."""
+def _image_area(data: bytes) -> int:
+    """Pixel area (width x height) read off a PNG/JPEG/GIF/WebP header; 0 if
+    unrecognized. Just enough to rank covers by resolution, not a decoder --
+    truncated data short-slices to small ints and at worst ranks as 0."""
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return int.from_bytes(data[16:20]) * int.from_bytes(data[20:24])
+    if data[:3] == b"\xff\xd8\xff":
+        i = 2
+        while i + 9 <= len(data) and data[i] == 0xFF:
+            marker, size = data[i + 1], int.from_bytes(data[i + 2 : i + 4])
+            if marker == 0xDA:  # start of scan with no SOF seen: give up
+                break
+            if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC):
+                h = int.from_bytes(data[i + 5 : i + 7])
+                return h * int.from_bytes(data[i + 7 : i + 9])
+            i += 2 + size
+        return 0
+    if data[:6] in (b"GIF87a", b"GIF89a"):
+        return int.from_bytes(data[6:8], "little") * int.from_bytes(
+            data[8:10], "little"
+        )
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        fmt = data[12:16]
+        if fmt == b"VP8X":
+            return (int.from_bytes(data[24:27], "little") + 1) * (
+                int.from_bytes(data[27:30], "little") + 1
+            )
+        if fmt == b"VP8 ":
+            return (int.from_bytes(data[26:28], "little") & 0x3FFF) * (
+                int.from_bytes(data[28:30], "little") & 0x3FFF
+            )
+        if fmt == b"VP8L":
+            dims = int.from_bytes(data[21:25], "little")
+            return ((dims & 0x3FFF) + 1) * (((dims >> 14) & 0x3FFF) + 1)
+    return 0
+
+
+def _fetch_cover(url: str) -> tuple[str, int] | None:
+    """Download a cover; returns (base64 data URI for sceneUpdate, pixel area),
+    or None if it can't be fetched (a missing cover shouldn't fail the whole
+    enrich)."""
     try:
         resp = httpx.get(
             url, timeout=30.0, follow_redirects=True, headers={"User-Agent": UA}
@@ -394,4 +436,5 @@ def _fetch_cover(url: str) -> str | None:
         mime = (resp.headers.get("content-type") or "").split(";")[0].strip()
         if not mime.startswith("image/"):
             mime = "image/jpeg"
-    return f"data:{mime};base64,{base64.b64encode(data).decode('ascii')}"
+    uri = f"data:{mime};base64,{base64.b64encode(data).decode('ascii')}"
+    return uri, _image_area(data)
