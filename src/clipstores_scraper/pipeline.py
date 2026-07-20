@@ -304,7 +304,8 @@ def _nonempty(d: SceneData) -> bool:
 def merge_details(items: list[SceneData]) -> SceneData:
     """Combine a scene's per-store metadata. Scalar fields take the highest-ranked
     store that has a value (iwc > manyvids > c4s > loyalfans, lower fills gaps);
-    tags are the union across all stores, deduped case-insensitively.
+    tags are the union across all stores, deduped case-insensitively; the date
+    is the earliest across stores (original release, not a later re-upload).
 
     The title additionally prefers the least TOS-mangled variant: a store that
     shows the real word beats a higher-ranked one whose title is censored
@@ -327,7 +328,10 @@ def merge_details(items: list[SceneData]) -> SceneData:
     )
     picks = {"title": by_title, "details": by_details}
     merged = SceneData(source="merged")
-    for field_name in ("title", "date", "details", "code", "cover_url", "studio"):
+    # Date: the earliest across stores is the original release; later ones are
+    # re-uploads. ISO YYYY-MM-DD, so string min() is chronological.
+    merged.date = min((d.date for d in items if d.date), default=None)
+    for field_name in ("title", "details", "code", "cover_url", "studio"):
         for d in picks.get(field_name, ordered):
             value = getattr(d, field_name)
             if value:
