@@ -8,7 +8,9 @@ tags and cover off it.
 
 The catalog is the site-wide movie listing (``/categories/movies_<n>_d.html``).
 It yields title + URL only (the listing has no duration), so matching for this
-store leans on the title.
+store leans on the title. Clip URLs are stored in the ``_vids`` form -- the
+same canonical URL the Stash community scraper writes -- so the page a stored
+link opens shows the true release date.
 """
 
 from __future__ import annotations
@@ -37,6 +39,12 @@ _TAGS_BLOCK_RE = re.compile(r'class="update_tags"[^>]*>(.*?)</span>', re.S)
 _A_RE = re.compile(r"<a[^>]*>(.*?)</a>", re.S)
 _COVER_RE = re.compile(r'class="VOD_update".*?<img[^>]*\bsrc0_4x="([^"]+)"', re.S)
 _LISTING_SLUG_RE = re.compile(r"/updates/([^\"]+?)\.html")
+
+
+def _clip_url(slug: str) -> str:
+    """Canonical clip URL: the /vod/scenes/<slug>_vids.html form the community
+    scraper writes. The /updates/ page prints every date a year late."""
+    return f"{_HOST}/vod/scenes/{slug}_vids.html"
 
 
 def _parse_date(text: str | None) -> str | None:
@@ -71,6 +79,7 @@ class GoddessSnowStore:
         clips: dict[str, Clip] = {}
         for c in known or []:
             if m := _SLUG_RE.search(c.url):
+                c.url = _clip_url(m.group(1))  # migrate cached /updates/ URLs
                 clips[m.group(1)] = c
         seeded = len(clips)
         with httpx.Client(
@@ -86,7 +95,7 @@ class GoddessSnowStore:
                     if slug not in clips:
                         clips[slug] = Clip(
                             title=slug.replace("-", " "),
-                            url=f"{_HOST}/updates/{slug}.html",
+                            url=_clip_url(slug),
                             source="GoddessSnow",
                             duration=None,
                             date=None,
