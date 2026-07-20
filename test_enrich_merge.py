@@ -89,6 +89,15 @@ def test_details_prefer_fewest_censor_masks():
     assert merge_details([iwc, lf]).details.startswith("You will fight")
 
 
+def test_date_takes_earliest_across_stores():
+    # A clip re-uploaded to a second store later must keep its original release
+    # date: earliest wins, regardless of store rank.
+    iwc = SceneData(source="IWantClips", date="2023-09-14")
+    mv = SceneData(source="ManyVids", date="2021-03-02")
+    c4s = SceneData(source="Clips4Sale")  # no date: ignored
+    assert merge_details([iwc, mv, c4s]).date == "2021-03-02"
+
+
 def test_tags_union_dedup_case_insensitive():
     a = SceneData(source="IWantClips", tags=["Feet", "POV"])
     b = SceneData(source="Clips4Sale", tags=["feet", "Tease"])
