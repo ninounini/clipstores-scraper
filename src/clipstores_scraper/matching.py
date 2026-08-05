@@ -118,6 +118,13 @@ def _normalize(s: str) -> str:
     # ("Pédagogique" vs "Pedagogique"), and the comparison shouldn't care.
     decomposed = unicodedata.normalize("NFKD", s)
     s = "".join(c for c in decomposed if not unicodedata.combining(c))
+    # Hyphens separate words, exactly as clean_filename already treats them on the
+    # query side. Letting the strip below just delete them glued a store title's
+    # "Step-Daddy's" into "stepdaddys" while the filename's became "step daddys" --
+    # same words, no shared token, score under the floor. Digit ranges glue instead
+    # ("1-4" -> "14"), matching clean_filename, so the sequel guard still lines up.
+    s = re.sub(r"(?<=\d)[.\-–—](?=\d)", "", s)
+    s = re.sub(r"[-–—]", " ", s)
     s = re.sub(r"[^\w\s]", "", s.lower())
     # Split digits at word EDGES so "ep.21"/"Pt.2"/"Part2"/"2days" (punctuation
     # just stripped, or none to begin with) expose the same numeric token as
