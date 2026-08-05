@@ -354,17 +354,21 @@ def test_hyphenated_word_in_title_tokenizes_like_the_filename() -> None:
     # clean_filename splits the filename's hyphens into spaces, so a store title's
     # hyphenated word must split too. Gluing it into one token ("stepsisters")
     # sank an otherwise obvious match from ~0.94 to ~0.65 -- under the floor, so
-    # no candidate at all.
-    query = clean_filename("Someone_-_My_Step-Sisters_Big_Sec.mp4", ["Someone"])
-    assert title_score(query, "My Step-Sister's Big Secret", ["Someone"]) >= 0.85
-    # ...but a digit range still glues on BOTH sides ("1-4" -> "14"), the way
-    # clean_filename does it, or the sequel guard would see phantom numbers.
-    assert (
-        title_score(
-            clean_filename("Show_Marathon_1-4.mp4", []), "Show Marathon 1-4", []
+    # no candidate at all. Both sides list the same three dashes, so run all of
+    # them -- the two character classes must never drift apart.
+    for d in ("-", "–", "—"):
+        query = clean_filename(f"Someone_-_My_Step{d}Sisters_Big_Sec.mp4", ["Someone"])
+        assert title_score(query, f"My Step{d}Sister's Big Secret", ["Someone"]) >= 0.85
+        # ...but a digit range still glues on BOTH sides ("1-4" -> "14"), the way
+        # clean_filename does it, or the sequel guard would see phantom numbers.
+        assert (
+            title_score(
+                clean_filename(f"Show_Marathon_1{d}4.mp4", []),
+                f"Show Marathon 1{d}4",
+                [],
+            )
+            == 1.0
         )
-        == 1.0
-    )
 
 
 if __name__ == "__main__":
