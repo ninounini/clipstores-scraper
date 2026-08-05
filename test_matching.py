@@ -5,7 +5,7 @@ Plain asserts, no framework. Run: uv run python test_matching.py
 
 from __future__ import annotations
 
-from clipstores_scraper.matching import title_score
+from clipstores_scraper.matching import clean_filename, title_score
 from clipstores_scraper.models import Clip, Performer, Scene, SceneFile
 from clipstores_scraper.pipeline import match_scenes
 
@@ -118,8 +118,8 @@ def test_leading_honorific_does_not_block_match() -> None:
 
 
 def test_corroboration_exception_below_gate() -> None:
-    # Title alone is below TITLE_MIN (0.85) -- the studio renamed "aunt" to
-    # "step-aunt" on this store -- but duration AND date both agree, so the clip
+    # Title alone is below TITLE_MIN (0.85) -- the store's title names a relative
+    # the filename never did -- but duration AND date both agree, so the clip
     # qualifies as a (reviewable) medium match.
     perf = Performer(id="p", name="nova blake")
     clip = Clip(
@@ -129,7 +129,7 @@ def test_corroboration_exception_below_gate() -> None:
         duration=600,
         date="2023-05-01",
     )
-    s = _scene("9", "aunt-s-watercolor-demonstration.mov", 600)
+    s = _scene("9", "watercolor-demonstration.mov", 600)
     s.date = "2023-05-01"
     results = match_scenes([s], [clip], perf)
     assert len(results) == 1, results
@@ -147,7 +147,7 @@ def test_below_gate_needs_both_corroborators() -> None:
         source="LoyalFans",
         duration=600,
     )
-    s = _scene("9", "aunt-s-watercolor-demonstration.mov", 600)
+    s = _scene("9", "watercolor-demonstration.mov", 600)
     assert match_scenes([s], [clip], perf) == []
 
 
@@ -348,6 +348,23 @@ def test_equal_confidence_prefers_higher_title_score() -> None:
     assert len(results) == 1, results
     assert results[0].clip.url == "http://x/exact"  # exact beat the near-miss
     assert results[0].confidence == "medium"
+
+
+def test_hyphenated_word_in_title_tokenizes_like_the_filename() -> None:
+    # clean_filename splits the filename's hyphens into spaces, so a store title's
+    # hyphenated word must split too. Gluing it into one token ("stepsisters")
+    # sank an otherwise obvious match from ~0.94 to ~0.65 -- under the floor, so
+    # no candidate at all.
+    query = clean_filename("Someone_-_My_Step-Sisters_Big_Sec.mp4", ["Someone"])
+    assert title_score(query, "My Step-Sister's Big Secret", ["Someone"]) >= 0.85
+    # ...but a digit range still glues on BOTH sides ("1-4" -> "14"), the way
+    # clean_filename does it, or the sequel guard would see phantom numbers.
+    assert (
+        title_score(
+            clean_filename("Show_Marathon_1-4.mp4", []), "Show Marathon 1-4", []
+        )
+        == 1.0
+    )
 
 
 if __name__ == "__main__":
